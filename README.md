@@ -1,2 +1,2 @@
 # ngx_adaptive_rl
-Nginx module for adaptive rate limiting requests.
+NGINX module for adaptive rate limiting based on system CPU load and upstream response latency.
