@@ -125,7 +125,6 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t* r) {
     // TODO: добавить upstream latency measurement & adjust factor
     // TODO: хранить кол-во запросов в секунду (shared memory), применять factor
 
-    // Пока просто логируем и пропускаем
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "adaptive_rl: loadavg=%.2f factor=%.2f", load[0], factor);
 
     return NGX_DECLINED;
@@ -147,7 +146,6 @@ static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf) {
     return NGX_OK;
 }
 
-// Добавляем в context
 static ngx_http_module_t ngx_http_adaptive_rl_module_ctx = {NULL,
                                                             ngx_http_adaptive_rl_init, // postconfiguration
 
