@@ -1,0 +1,5 @@
+ngx_addon_name=ngx_http_adaptive_rl_module
+
+HTTP_MODULES="$HTTP_MODULES ngx_http_adaptive_rl_module"
+
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS /opt/nginx-module-src/ngx_http_adaptive_rl_module.c"

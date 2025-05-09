@@ -11,7 +11,10 @@ set(NGINX_SRC_DIR $ENV{NGINX_SRC})
 
 include_directories(${NGINX_SRC_DIR}/src/core)
 include_directories(${NGINX_SRC_DIR}/src/http)
+include_directories(${NGINX_SRC_DIR}/src/event)
 include_directories(${NGINX_SRC_DIR}/src/os/unix)
+include_directories(${NGINX_SRC_DIR}/objs)
+include_directories(/opt/homebrew/include)
 
 add_library(ngx_adaptive_rl SHARED
         ngx_http_adaptive_rl_module.c)

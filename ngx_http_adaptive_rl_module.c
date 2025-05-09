@@ -8,7 +8,10 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <ngx_event.h>
 #include <unistd.h>
+
+static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t *cycle);
 
 // -------------------- Module Config --------------------
 typedef struct {
@@ -45,19 +48,15 @@ static ngx_command_t ngx_http_adaptive_rl_commands[] = {
     ngx_null_command};
 
 // -------------------- Context and Module --------------------
-static ngx_http_module_t ngx_http_adaptive_rl_module_ctx = {
-    NULL, // preconfiguration
-    NULL, // postconfiguration
-
-    NULL, // create main conf
-    NULL, // init main conf
-
-    NULL, // create server conf
-    NULL, // merge server conf
-
-    ngx_http_adaptive_rl_create_conf, // create location conf
-    ngx_http_adaptive_rl_merge_conf   // merge location conf
-};
+static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf);
+static ngx_http_module_t ngx_http_adaptive_rl_module_ctx = {NULL,
+                                                            ngx_http_adaptive_rl_init, // postconfiguration
+                                                            NULL,
+                                                            NULL,
+                                                            NULL,
+                                                            NULL,
+                                                            ngx_http_adaptive_rl_create_conf,
+                                                            ngx_http_adaptive_rl_merge_conf};
 
 ngx_module_t ngx_http_adaptive_rl_module = {NGX_MODULE_V1,
                                             &ngx_http_adaptive_rl_module_ctx, // module context
@@ -65,7 +64,7 @@ ngx_module_t ngx_http_adaptive_rl_module = {NGX_MODULE_V1,
                                             NGX_HTTP_MODULE,                  // module type
                                             NULL,
                                             NULL,
-                                            NULL,
+                                            ngx_http_adaptive_rl_init_process,
                                             NULL,
                                             NULL,
                                             NULL,
@@ -103,9 +102,97 @@ static char* ngx_http_adaptive_rl_merge_conf(ngx_conf_t* cf, void* parent, void*
     return NGX_CONF_OK;
 }
 
+// -------------------- Shared memory --------------------
+static ngx_shm_zone_t *shm_zone = NULL;
+
+typedef struct {
+    ngx_atomic_t rps;
+} ngx_http_adaptive_rl_shctx_t;
+
+static ngx_int_t ngx_http_adaptive_rl_init_shm_zone(ngx_shm_zone_t *shm_zone, void *data) {
+    ngx_http_adaptive_rl_shctx_t *shctx;
+    ngx_slab_pool_t *shpool;
+
+    if (data) {
+        shm_zone->data = data;
+
+        return NGX_OK;
+    }
+
+    shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
+
+    shctx = (ngx_http_adaptive_rl_shctx_t *) ngx_slab_alloc(shpool, sizeof(ngx_http_adaptive_rl_shctx_t));
+    if (shctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    ngx_memzero(shctx, sizeof(ngx_http_adaptive_rl_shctx_t));
+    shm_zone->data = shctx;
+
+    return NGX_OK;
+}
+
+static ngx_int_t ngx_http_adaptive_rl_init_shm(ngx_conf_t *cf) {
+    ngx_str_t shm_name = ngx_string("ngx_http_adaptive_rl");
+    size_t shm_size = ngx_align(8 * ngx_pagesize, ngx_pagesize);
+
+    shm_zone = ngx_shared_memory_add(cf, &shm_name, shm_size, &ngx_http_adaptive_rl_module);
+    if (shm_zone == NULL) {
+        return NGX_ERROR;
+    }
+
+    shm_zone->init = ngx_http_adaptive_rl_init_shm_zone;
+    shm_zone->data = NULL;
+
+    return NGX_OK;
+}
+
+// ----------------------- RPS -----------------------------
+static ngx_event_t *rps_reset_ev = NULL;
+
+static void ngx_http_adaptive_rl_reset_rps(ngx_event_t *ev) {
+    ngx_http_adaptive_rl_shctx_t *shctx;
+
+    if (shm_zone == NULL || shm_zone->data == NULL) {
+        return;
+    }
+
+    shctx = (ngx_http_adaptive_rl_shctx_t *)shm_zone->data;
+
+    ngx_atomic_t old_value = ngx_atomic_fetch_add(&shctx->rps, 0);
+    while (1) {
+        if (ngx_atomic_cmp_set(&shctx->rps, old_value, 0)) {
+            break;
+        }
+
+        old_value = ngx_atomic_fetch_add(&shctx->rps, 0);
+    }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ev->log, 0, "adaptive_rl: RPS reset to 0 (previous value: %ui)", old_value);
+
+    ngx_add_timer(ev, 1000);
+}
+
+static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t *cycle) {
+    rps_reset_ev = ngx_pcalloc(cycle->pool, sizeof(ngx_event_t));
+    if (rps_reset_ev == NULL) {
+        return NGX_ERROR;
+    }
+
+    rps_reset_ev->handler = ngx_http_adaptive_rl_reset_rps;
+    rps_reset_ev->log = cycle->log;
+    rps_reset_ev->data = NULL;
+    rps_reset_ev->timedout = 1;
+
+    ngx_add_timer(rps_reset_ev, 1000);
+
+    return NGX_OK;
+}
+
 // -------------------- Request Handler --------------------
-static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t* r) {
-    ngx_http_adaptive_rl_conf_t* conf;
+// TODO: добавить upstream latency measurement & adjust factor
+static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
+    ngx_http_adaptive_rl_conf_t *conf;
     conf = ngx_http_get_module_loc_conf(r, ngx_http_adaptive_rl_module);
 
     if (!conf->enable) {
@@ -122,10 +209,29 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t* r) {
         factor *= conf->decay_factor;
     }
 
-    // TODO: добавить upstream latency measurement & adjust factor
-    // TODO: хранить кол-во запросов в секунду (shared memory), применять factor
+    ngx_http_adaptive_rl_shctx_t *shctx;
+    shctx = (ngx_http_adaptive_rl_shctx_t *)shm_zone->data;
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "adaptive_rl: loadavg=%.2f factor=%.2f", load[0], factor);
+    if (shctx == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_adaptive_rl: shared memory is not initialized");
+
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    ngx_atomic_t current_rps = ngx_atomic_fetch_add(&shctx->rps, 1);
+    ngx_uint_t max_rps = (ngx_uint_t)(conf->base_rps * factor);
+
+    if (current_rps >= max_rps) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "ngx_adaptive_rl: rejecting request due to high RPS (current: %ui, limit: %ui)",
+                      current_rps, max_rps);
+
+        return NGX_HTTP_SERVICE_UNAVAILABLE;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "ngx_adaptive_rl: allowing request (RPS: %ui, max RPS: %ui, load: %.2f, factor: %.2f)",
+                  current_rps, max_rps, load[0], factor);
 
     return NGX_DECLINED;
 }
@@ -135,6 +241,10 @@ static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf) {
     ngx_http_handler_pt* h;
     ngx_http_core_main_conf_t* cmcf;
 
+    if (ngx_http_adaptive_rl_init_shm(cf) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
@@ -143,15 +253,6 @@ static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf) {
     }
 
     *h = ngx_http_adaptive_rl_handler;
+
     return NGX_OK;
 }
-
-static ngx_http_module_t ngx_http_adaptive_rl_module_ctx = {NULL,
-                                                            ngx_http_adaptive_rl_init, // postconfiguration
-
-                                                            NULL,
-                                                            NULL,
-                                                            NULL,
-                                                            NULL,
-                                                            ngx_http_adaptive_rl_create_conf,
-                                                            ngx_http_adaptive_rl_merge_conf};
