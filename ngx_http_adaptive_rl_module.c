@@ -138,6 +138,8 @@ static ngx_int_t ngx_http_adaptive_rl_init_shm(ngx_conf_t *cf) {
 
     shm_zone = ngx_shared_memory_add(cf, &shm_name, shm_size, &ngx_http_adaptive_rl_module);
     if (shm_zone == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "init shm: shm_zone is NULL");
+
         return NGX_ERROR;
     }
 
@@ -154,6 +156,8 @@ static void ngx_http_adaptive_rl_reset_rps(ngx_event_t *ev) {
     ngx_http_adaptive_rl_shctx_t *shctx;
 
     if (shm_zone == NULL || shm_zone->data == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "reset timer: shm_zone is NULL");
+
         return;
     }
 
@@ -176,6 +180,8 @@ static void ngx_http_adaptive_rl_reset_rps(ngx_event_t *ev) {
 static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t *cycle) {
     rps_reset_ev = ngx_pcalloc(cycle->pool, sizeof(ngx_event_t));
     if (rps_reset_ev == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "rps_reset_ev == NULL");
+
         return NGX_ERROR;
     }
 
@@ -192,6 +198,8 @@ static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t *cycle) {
 // -------------------- Request Handler --------------------
 // TODO: добавить upstream latency measurement & adjust factor
 static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "ngx_http_adaptive_rl_handler triggered");
+
     ngx_http_adaptive_rl_conf_t *conf;
     conf = ngx_http_get_module_loc_conf(r, ngx_http_adaptive_rl_module);
 
@@ -238,21 +246,30 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
 
 // -------------------- Register Handler --------------------
 static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf) {
-    ngx_http_handler_pt* h;
-    ngx_http_core_main_conf_t* cmcf;
+    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "Registering ngx_http_adaptive_rl_handler");
 
     if (ngx_http_adaptive_rl_init_shm(cf) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "Failed to init ngx_http_adaptive_rl_init_shm");
+
         return NGX_ERROR;
     }
+
+    ngx_http_handler_pt* h;
+    ngx_http_core_main_conf_t* cmcf;
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
     if (h == NULL) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "Failed to register ngx_http_adaptive_rl_handler");
+
         return NGX_ERROR;
     }
 
     *h = ngx_http_adaptive_rl_handler;
+    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "Handler registered successfully");
 
     return NGX_OK;
 }

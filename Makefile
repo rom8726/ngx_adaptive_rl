@@ -32,3 +32,7 @@ rebuild:
 
 format:
 	find . -type f \( -name "*.h" -o -name "*.c" \) -exec clang-format -i {} +
+
+run:
+	docker build -t ngx_adaptive_rl .
+	docker run --rm -p 8090:80 ngx_adaptive_rl
