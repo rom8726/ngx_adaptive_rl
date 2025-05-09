@@ -196,7 +196,6 @@ static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t* cycle) {
 }
 
 // -------------------- Request Handler --------------------
-// TODO: добавить upstream latency measurement & adjust factor
 static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
     ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "ngx_http_adaptive_rl_handler triggered");
 
