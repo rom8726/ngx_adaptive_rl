@@ -16,10 +16,10 @@ static ngx_int_t ngx_http_adaptive_rl_init_process(ngx_cycle_t* cycle);
 // -------------------- Module Config --------------------
 typedef struct {
     ngx_flag_t enable;
-    double cpu_threshold;
+    ngx_uint_t cpu_threshold_x100;
     ngx_msec_t latency_threshold;
     ngx_uint_t base_rps;
-    double decay_factor;
+    ngx_uint_t decay_factor_percents;
 } ngx_http_adaptive_rl_conf_t;
 
 static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t* r);
@@ -31,9 +31,9 @@ static ngx_command_t ngx_http_adaptive_rl_commands[] = {
     {ngx_string("rate_limit_adaptive"), NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_FLAG,
      ngx_conf_set_flag_slot, NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, enable), NULL},
 
-    {ngx_string("rate_limit_cpu_threshold"),
+    {ngx_string("rate_limit_cpu_threshold_x100"),
      NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, ngx_conf_set_num_slot,
-     NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, cpu_threshold), NULL},
+     NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, cpu_threshold_x100), NULL},
 
     {ngx_string("rate_limit_latency_threshold"),
      NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, ngx_conf_set_msec_slot,
@@ -42,8 +42,8 @@ static ngx_command_t ngx_http_adaptive_rl_commands[] = {
     {ngx_string("rate_limit_base"), NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
      ngx_conf_set_num_slot, NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, base_rps), NULL},
 
-    {ngx_string("rate_limit_decay"), NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
-     ngx_conf_set_num_slot, NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, decay_factor), NULL},
+    {ngx_string("rate_limit_decay_percents"), NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+     ngx_conf_set_num_slot, NGX_HTTP_LOC_CONF_OFFSET, offsetof(ngx_http_adaptive_rl_conf_t, decay_factor_percents), NULL},
 
     ngx_null_command};
 
@@ -81,10 +81,10 @@ static void* ngx_http_adaptive_rl_create_conf(ngx_conf_t* cf) {
     }
 
     conf->enable = NGX_CONF_UNSET;
-    conf->cpu_threshold = NGX_CONF_UNSET;
+    conf->cpu_threshold_x100 = NGX_CONF_UNSET_UINT;
     conf->latency_threshold = NGX_CONF_UNSET_MSEC;
     conf->base_rps = NGX_CONF_UNSET_UINT;
-    conf->decay_factor = NGX_CONF_UNSET;
+    conf->decay_factor_percents = NGX_CONF_UNSET_UINT;
 
     return conf;
 }
@@ -94,10 +94,10 @@ static char* ngx_http_adaptive_rl_merge_conf(ngx_conf_t* cf, void* parent, void*
     ngx_http_adaptive_rl_conf_t* conf = child;
 
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
-    ngx_conf_merge_value(conf->cpu_threshold, prev->cpu_threshold, 1.5);
+    ngx_conf_merge_uint_value(conf->cpu_threshold_x100, prev->cpu_threshold_x100, 150);
     ngx_conf_merge_msec_value(conf->latency_threshold, prev->latency_threshold, 300);
     ngx_conf_merge_uint_value(conf->base_rps, prev->base_rps, 10000);
-    ngx_conf_merge_value(conf->decay_factor, prev->decay_factor, 0.8);
+    ngx_conf_merge_uint_value(conf->decay_factor_percents, prev->decay_factor_percents, 80);
 
     return NGX_CONF_OK;
 }
@@ -213,8 +213,9 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
     }
 
     double factor = 1.0;
-    if (load[0] >= conf->cpu_threshold) {
-        factor *= conf->decay_factor;
+    double cpu_threshold = (double) conf->cpu_threshold_x100 / 100.0;
+    if (load[0] >= cpu_threshold) {
+        factor *= (double)conf->decay_factor_percents/100.0;
     }
 
     ngx_http_adaptive_rl_shctx_t* shctx;
