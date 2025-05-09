@@ -96,8 +96,8 @@ static char* ngx_http_adaptive_rl_merge_conf(ngx_conf_t* cf, void* parent, void*
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
     ngx_conf_merge_value(conf->cpu_threshold, prev->cpu_threshold, 1.5);
     ngx_conf_merge_msec_value(conf->latency_threshold, prev->latency_threshold, 300);
-    ngx_conf_merge_uint_value(conf->base_rps, prev->base_rps, 100);
-    ngx_conf_merge_value(conf->decay_factor, prev->decay_factor, 0.5);
+    ngx_conf_merge_uint_value(conf->base_rps, prev->base_rps, 10000);
+    ngx_conf_merge_value(conf->decay_factor, prev->decay_factor, 0.8);
 
     return NGX_CONF_OK;
 }
