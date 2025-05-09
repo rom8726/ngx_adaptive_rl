@@ -207,6 +207,16 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
         return NGX_DECLINED;
     }
 
+    ngx_http_adaptive_rl_shctx_t* shctx = shm_zone->data;
+    ngx_atomic_t current_rps = ngx_atomic_fetch_add(&shctx->rps, 1);
+    if (current_rps >= conf->base_rps) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "ngx_adaptive_rl: rejecting request due to high RPS (current: %ui, limit (base): %ui)",
+                      current_rps, conf->base_rps);
+
+        return NGX_HTTP_SERVICE_UNAVAILABLE;
+    }
+
     double load[1];
     if (getloadavg(load, 1) != 1) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -218,29 +228,24 @@ static ngx_int_t ngx_http_adaptive_rl_handler(ngx_http_request_t *r) {
         factor *= (double)conf->decay_factor_percents/100.0;
     }
 
-    ngx_http_adaptive_rl_shctx_t* shctx;
-    shctx = (ngx_http_adaptive_rl_shctx_t*)shm_zone->data;
-
     if (shctx == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_adaptive_rl: shared memory is not initialized");
 
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    ngx_atomic_t current_rps = ngx_atomic_fetch_add(&shctx->rps, 1);
     ngx_uint_t max_rps = (ngx_uint_t)(conf->base_rps * factor);
-
     if (current_rps >= max_rps) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                      "ngx_adaptive_rl: rejecting request due to high RPS (current: %ui, limit: %ui)", current_rps,
-                      max_rps);
+                      "ngx_adaptive_rl: rejecting request due to high RPS (current: %ui, limit (decreased): %ui)",
+                      current_rps, max_rps);
 
         return NGX_HTTP_SERVICE_UNAVAILABLE;
     }
 
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                  "ngx_adaptive_rl: allowing request (RPS: %ui, max RPS: %ui, load: %.2f, factor: %.2f)", current_rps,
-                  max_rps, load[0], factor);
+                  "ngx_adaptive_rl: allowing request (RPS: %ui, max RPS: %ui, load: %.2f, factor: %.2f)",
+                  current_rps, max_rps, load[0], factor);
 
     return NGX_DECLINED;
 }
