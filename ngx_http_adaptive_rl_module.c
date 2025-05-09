@@ -259,7 +259,7 @@ static ngx_int_t ngx_http_adaptive_rl_init(ngx_conf_t* cf) {
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers); // TODO: NGX_HTTP_ACCESS_PHASE???
     if (h == NULL) {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Failed to register ngx_http_adaptive_rl_handler");
 
