@@ -46,10 +46,6 @@ RUN ./configure --add-module=/opt/nginx-module-src \
 
 RUN make && make install
 
-FROM ubuntu:22.04
-
-COPY --from=builder /usr/local/nginx /usr/local/nginx
-
 COPY nginx.conf /usr/local/nginx/conf/nginx.conf
 
 RUN mkdir -p /usr/local/nginx/logs
