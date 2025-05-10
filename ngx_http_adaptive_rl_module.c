@@ -1,8 +1,7 @@
 /*
  * ngx_http_adaptive_rl_module.c
  *
- * NGINX module for adaptive rate limiting based on system CPU load
- * and upstream response latency.
+ * NGINX module for adaptive rate limiting based on system CPU load.
  */
 
 #include <ngx_config.h>
