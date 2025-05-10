@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.31)
-project(ngx_adaptive_rl C)
+project(ngx_http_adaptive_rl_module C)
 
 set(CMAKE_C_STANDARD 11)
 
@@ -16,5 +16,5 @@ include_directories(${NGINX_SRC_DIR}/src/os/unix)
 include_directories(${NGINX_SRC_DIR}/objs)
 include_directories(/opt/homebrew/include)
 
-add_library(ngx_adaptive_rl SHARED
+add_library(ngx_http_adaptive_rl_module SHARED
         ngx_http_adaptive_rl_module.c)
